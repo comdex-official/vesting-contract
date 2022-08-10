@@ -307,7 +307,6 @@ fn deregister_vesting_account(
         None => Uint128::new(0),
     };
     VESTED_BY_DENOM.save(deps.storage, &denom_str, &(total_vested-left_vesting_amount))?;
-    
 
     Ok(Response::new().add_messages(messages).add_attributes(vec![
         ("action", "deregister_vesting_account"),
@@ -407,7 +406,7 @@ fn claim(
 
     }
 
-    
+
     Ok(Response::new()
         .add_messages(messages)
         .add_attributes(vec![("action", "claim"), ("address", sender.as_str())])
@@ -486,3 +485,231 @@ fn vested_tokens(
 }
 
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+    use cosmwasm_std::{coins, Addr, StdError};
+
+    const DENOM: &str = "TKN";
+
+    #[test]
+    fn proper_initialization() {
+        let env = mock_env();
+        let mut deps = mock_dependencies();
+        let info = mock_info("sender", &coins(0, DENOM.to_string()));
+
+        let msg = InstantiateMsg{
+        };
+        let res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        assert_eq!(res.messages.len(), 0);
+        assert_eq!(res.attributes.len(), 0);
+    }
+
+ #[test]
+    fn testing_register_vesting_account_withPeriodic(){
+        let env = mock_env();
+        let mut deps = mock_dependencies();
+        let info = mock_info("sender", &coins(2000, DENOM.to_string()));
+        let amount:u64=100;
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: Some(info.sender.to_string()),
+            address: info.sender.clone().into_string(),
+            vesting_schedule: VestingSchedule::PeriodicVesting {
+                start_time: 1662824814.to_string(),
+                end_time: 1662824914.to_string(),
+                vesting_interval: 4.to_string(),
+                amount: Uint128::from(amount)
+            },
+        };
+        // need to check deposit amount should equal to vesting amount
+
+        let res = execute(deps.as_mut(), env, info.clone(), msg.clone());
+        let deposit_denom = Denom::Native(info.funds[0].denom.clone());
+        assert_eq!(res,Ok(Response::new()
+        .add_attributes(vec![
+            ("action", "register_vesting_account"),
+            (
+                "master_address",
+                info.sender.as_str(),
+            ),
+            ("address", info.sender.as_str()),
+            ("vesting_denom", &to_string(&deposit_denom).unwrap()),
+            ("vesting_amount", &info.funds[0].amount.to_string()),
+        ]
+    )))
+
+    }
+
+    #[test]
+    fn testing_register_vesting_account_with_linear(){
+        let env = mock_env();
+        let mut deps = mock_dependencies();
+        let info = mock_info("sender", &coins(100, DENOM.to_string()));
+        let amount:u64=100;
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: Some(info.sender.to_string()),
+            address: info.sender.clone().into_string(),
+            vesting_schedule: VestingSchedule::LinearVesting {
+                start_time: 1662824814.to_string(),
+                end_time: 1662824914.to_string(),
+                vesting_amount: Uint128::from(amount),
+            },
+        };
+        // need to check deposit amount should equal to vesting amount
+
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+        let deposit_denom = Denom::Native(info.funds[0].denom.clone());
+        assert_eq!(res,Ok(Response::new()
+        .add_attributes(vec![
+            ("action", "register_vesting_account"),
+            (
+                "master_address",
+                info.sender.as_str(),
+            ),
+            ("address", info.sender.as_str()),
+            ("vesting_denom", &to_string(&deposit_denom).unwrap()),
+            ("vesting_amount", &info.funds[0].amount.to_string()),
+        ]
+    )))
+    }
+
+
+    #[test]
+    fn testing_deregister_vesting_account_with_linera(){
+        let env = mock_env();
+        let mut deps = mock_dependencies();
+        let info = mock_info("sender", &coins(100, DENOM.to_string()));
+        let amount:u64=100;
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: Some(info.sender.to_string()),
+            address: info.sender.clone().into_string(),
+            vesting_schedule: VestingSchedule::LinearVesting {
+                start_time: 1662824814.to_string(),
+                end_time: 1662824914.to_string(),
+                vesting_amount: Uint128::from(amount),
+            },
+        };
+        // need to check deposit amount should equal to vesting amount
+
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+        let deposit_denom = Denom::Native(info.funds[0].denom.clone());
+    //     assert_eq!(res,Ok(Response::new()
+    //     .add_attributes(vec![
+    //         ("action", "register_vesting_account"),
+    //         (
+    //             "master_address",
+    //             info.sender.as_str(),
+    //         ),
+    //         ("address", info.sender.as_str()),
+    //         ("vesting_denom", &to_string(&deposit_denom).unwrap()),
+    //         ("vesting_amount", &info.funds[0].amount.to_string()),
+    //     ]
+    // )))
+    let reciverinfo = mock_info("recipent", &coins(100, DENOM.to_string()));
+
+    let msg = ExecuteMsg::DeregisterVestingAccount {
+        address: info.sender.clone().into_string(),
+        denom: deposit_denom.clone(),
+        vested_token_recipient: Some(info.sender.to_string().clone()),
+        left_vesting_token_recipient:Some(reciverinfo.sender.to_string())
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+    let mut messages: Vec<CosmosMsg> = vec![cosmwasm_std::CosmosMsg::Bank(BankMsg::Send {
+        to_address: reciverinfo.sender.clone().to_string(),
+        amount: vec![Coin {
+            denom:"TKN".to_string(),
+            amount: Uint128::from(amount),
+        }],
+    })];
+    assert_eq!(res,Ok(Response::new().add_messages(messages).add_attributes(vec![
+        ("action", "deregister_vesting_account"),
+        ("address", info.sender.as_str()),
+        ("vesting_denom", &to_string(&deposit_denom.clone()).unwrap()),
+        ("vesting_amount", &100.to_string()),
+        ("vested_amount", &0.to_string()),
+        ("left_vesting_amount", &100.to_string()),
+    ])))
+    }
+
+
+    #[test]
+    fn testing_vesting_account(){
+        let env = mock_env();
+        let mut deps = mock_dependencies();
+        let info = mock_info("sender", &coins(100, DENOM.to_string()));
+        let amount:u64=100;
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: Some(info.sender.to_string()),
+            address: info.sender.clone().into_string(),
+            vesting_schedule: VestingSchedule::LinearVesting {
+                start_time: 1662824814.to_string(),
+                end_time: 1662824914.to_string(),
+                vesting_amount: Uint128::from(amount),
+            },
+        };
+        // need to check deposit amount should equal to vesting amount
+
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+        let deposit_denom = Denom::Native(info.funds[0].denom.clone());
+
+    let querymsg = QueryMsg::VestingAccount {
+        address: info.sender.to_string(),
+        start_after: Some(deposit_denom.clone()),
+        limit: Some(0)
+    };
+
+    // let res = query(deps.as_ref(), env, querymsg).unwrap();
+    let res = vesting_account(
+        deps.as_ref(),
+        env,
+        info.sender.clone().into_string(),
+        Some(deposit_denom),
+        Some(0)
+    ).unwrap();
+
+    assert_eq!(res,VestingAccountResponse{ address: info.sender.into_string(), vestings:  vec![]})
+
+
+    }
+
+
+
+    #[test]
+    fn testing_vesting_tokens(){
+        let env = mock_env();
+        let mut deps = mock_dependencies();
+        let info = mock_info("sender", &coins(100, DENOM.to_string()));
+        let amount:u64=100;
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: Some(info.sender.to_string()),
+            address: info.sender.clone().into_string(),
+            vesting_schedule: VestingSchedule::LinearVesting {
+                start_time: 1662824814.to_string(),
+                end_time: 1662824914.to_string(),
+                vesting_amount: Uint128::from(amount),
+            },
+        };
+        // need to check deposit amount should equal to vesting amount
+
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+        let deposit_denom = Denom::Native(info.funds[0].denom.clone());
+
+    let querymsg = QueryMsg::VestingAccount {
+        address: info.sender.to_string(),
+        start_after: Some(deposit_denom.clone()),
+        limit: Some(0)
+    };
+
+    // let res = query(deps.as_ref(), env, querymsg).unwrap();
+    let res = vested_tokens(deps.as_ref(), env, info.funds[0].denom.clone()).unwrap();
+    assert_eq!(res,Uint128::from(amount));
+
+    // assert_eq!(res,VestingAccountResponse{ address: info.sender.into_string(), vestings:  vec![]})
+
+
+    }
+
+}
