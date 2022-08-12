@@ -507,12 +507,14 @@ mod tests {
         assert_eq!(res.attributes.len(), 0);
     }
 
+    // testcase for register_vesting account with PeriodicVesting.
  #[test]
-    fn testing_register_vesting_account_withPeriodic(){
+    fn testing_register_vesting_account_with_periodic(){
         let env = mock_env();
         let mut deps = mock_dependencies();
         let info = mock_info("sender", &coins(2000, DENOM.to_string()));
         let amount:u64=100;
+        // Register Message
         let msg = ExecuteMsg::RegisterVestingAccount {
             master_address: Some(info.sender.to_string()),
             address: info.sender.clone().into_string(),
@@ -523,10 +525,32 @@ mod tests {
                 amount: Uint128::from(amount)
             },
         };
-        // need to check deposit amount should equal to vesting amount
+        //Registering the vesting account
 
         let res = execute(deps.as_mut(), env, info.clone(), msg.clone());
         let deposit_denom = Denom::Native(info.funds[0].denom.clone());
+
+         // Amount Should  not equal to zero.
+        assert_ne!(res,Err(StdError::generic_err(
+            "cannot make zero token vesting account",
+        )));
+
+         // End_time Should be valid.
+        assert_ne!(res,Err(StdError::generic_err("invalid end_time")));
+
+         // Start_time shoul be valid.
+        assert_ne!(res,Err(StdError::generic_err("invalid start_time")));
+
+         // Vesting interval Should be valid.
+        assert_ne!(res,Err(StdError::generic_err("invalid vesting_interval")));
+
+         // Start_time shoul be valid.
+        assert_ne!(res,Err(StdError::generic_err("invalid start_time")));
+         // End time should be greater than Start Time.
+        assert_ne!(res,Err(StdError::generic_err("assert(end_time > start_time)")));
+
+        // Vesting interval Should not be eqaul to zero.
+        assert_ne!(res,Err(StdError::generic_err("assert(vesting_interval != 0)")));
         assert_eq!(res,Ok(Response::new()
         .add_attributes(vec![
             ("action", "register_vesting_account"),
@@ -542,6 +566,7 @@ mod tests {
 
     }
 
+    // tescase for register_vesting_account with linearvesting
     #[test]
     fn testing_register_vesting_account_with_linear(){
         let env = mock_env();
@@ -557,10 +582,29 @@ mod tests {
                 vesting_amount: Uint128::from(amount),
             },
         };
-        // need to check deposit amount should equal to vesting amount
 
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = Denom::Native(info.funds[0].denom.clone());
+
+        // Amount Should  not equal to zero.
+        assert_ne!(res,Err(StdError::generic_err("assert(vesting_amount > 0)")));
+
+        // Start_time shoul be valid.
+        assert_ne!(res,Err(StdError::generic_err("invalid start_time")));
+
+        // End_time Should be valid.
+        assert_ne!(res,Err(StdError::generic_err("invalid end_time")));
+
+        // End time should be greater than Start Time.
+        assert_ne!(res,Err(StdError::generic_err("assert(start_time < block_time)")));
+        assert_ne!(res,Err(StdError::generic_err("assert(end_time <= start_time)")));
+
+        // vesting amount and deposit amount should be equal.
+        assert_ne!( res,Err(StdError::generic_err(
+            "assert(deposit_amount == vesting_amount)",
+        )));
+
+        // Should return Response
         assert_eq!(res,Ok(Response::new()
         .add_attributes(vec![
             ("action", "register_vesting_account"),
@@ -575,7 +619,7 @@ mod tests {
     )))
     }
 
-
+// Testcase for Deregistering vesting accounts.
     #[test]
     fn testing_deregister_vesting_account_with_linera(){
         let env = mock_env();
@@ -591,24 +635,14 @@ mod tests {
                 vesting_amount: Uint128::from(amount),
             },
         };
-        // need to check deposit amount should equal to vesting amount
 
+
+        // Registering the account with linearVesting.
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = Denom::Native(info.funds[0].denom.clone());
-    //     assert_eq!(res,Ok(Response::new()
-    //     .add_attributes(vec![
-    //         ("action", "register_vesting_account"),
-    //         (
-    //             "master_address",
-    //             info.sender.as_str(),
-    //         ),
-    //         ("address", info.sender.as_str()),
-    //         ("vesting_denom", &to_string(&deposit_denom).unwrap()),
-    //         ("vesting_amount", &info.funds[0].amount.to_string()),
-    //     ]
-    // )))
     let reciverinfo = mock_info("recipent", &coins(100, DENOM.to_string()));
 
+    // deregister message.
     let msg = ExecuteMsg::DeregisterVestingAccount {
         address: info.sender.clone().into_string(),
         denom: deposit_denom.clone(),
@@ -616,6 +650,7 @@ mod tests {
         left_vesting_token_recipient:Some(reciverinfo.sender.to_string())
     };
 
+    //deregistring account
     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
     let mut messages: Vec<CosmosMsg> = vec![cosmwasm_std::CosmosMsg::Bank(BankMsg::Send {
         to_address: reciverinfo.sender.clone().to_string(),
@@ -624,6 +659,8 @@ mod tests {
             amount: Uint128::from(amount),
         }],
     })];
+
+    // Should return response.
     assert_eq!(res,Ok(Response::new().add_messages(messages).add_attributes(vec![
         ("action", "deregister_vesting_account"),
         ("address", info.sender.as_str()),
@@ -634,7 +671,45 @@ mod tests {
     ])))
     }
 
+// Testcase for claim
+    #[test]
+    fn testing_claim(){
+        let env = mock_env();
+        let mut deps = mock_dependencies();
+        let info = mock_info("sender", &coins(100, DENOM.to_string()));
+        let amount:u64=100;
+        // registering Message
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: Some(info.sender.to_string()),
+            address: info.sender.clone().into_string(),
+            vesting_schedule: VestingSchedule::LinearVesting {
+                start_time: 1662824814.to_string(),
+                end_time: 1662824914.to_string(),
+                vesting_amount: Uint128::from(amount),
+            },
+        };
+        // Registering the account
 
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+        let deposit_denom = Denom::Native(info.funds[0].denom.clone());
+        let reciverinfo = mock_info("recipent", &coins(100, DENOM.to_string()));
+
+        let res = claim(deps.as_mut(), env, info.clone(), vec![deposit_denom], Some(reciverinfo.sender.clone().into_string()));
+
+        assert_ne!(res, Err(StdError::generic_err(format!(
+            "vesting entry is not found for denom {}",
+            to_string(&info.funds[0].denom).unwrap(),
+        ))));
+        let messages : Vec<CosmosMsg>= vec![];
+// Should return Respose
+        assert_eq!(res,Ok(Response::new()
+        .add_messages(messages)
+        .add_attributes(vec![("action", "claim"), ("address", info.sender.as_str())])));
+        // .add_attributes(attrs)))
+    }
+
+
+    // testcase for Query to get vesting account
     #[test]
     fn testing_vesting_account(){
         let env = mock_env();
@@ -650,18 +725,16 @@ mod tests {
                 vesting_amount: Uint128::from(amount),
             },
         };
-        // need to check deposit amount should equal to vesting amount
-
+        // Registering the Account
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = Denom::Native(info.funds[0].denom.clone());
-
+// Query Message
     let querymsg = QueryMsg::VestingAccount {
         address: info.sender.to_string(),
         start_after: Some(deposit_denom.clone()),
         limit: Some(0)
     };
-
-    // let res = query(deps.as_ref(), env, querymsg).unwrap();
+// running Query function
     let res = vesting_account(
         deps.as_ref(),
         env,
@@ -669,20 +742,20 @@ mod tests {
         Some(deposit_denom),
         Some(0)
     ).unwrap();
-
+// Should return VEstingAccountrespose.
     assert_eq!(res,VestingAccountResponse{ address: info.sender.into_string(), vestings:  vec![]})
-
 
     }
 
 
-
+// testcase for query to get vesting Tokens.
     #[test]
     fn testing_vesting_tokens(){
         let env = mock_env();
         let mut deps = mock_dependencies();
         let info = mock_info("sender", &coins(100, DENOM.to_string()));
         let amount:u64=100;
+        // register Message
         let msg = ExecuteMsg::RegisterVestingAccount {
             master_address: Some(info.sender.to_string()),
             address: info.sender.clone().into_string(),
@@ -692,22 +765,14 @@ mod tests {
                 vesting_amount: Uint128::from(amount),
             },
         };
-        // need to check deposit amount should equal to vesting amount
 
+        // Registering Accounts.
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = Denom::Native(info.funds[0].denom.clone());
 
-    let querymsg = QueryMsg::VestingAccount {
-        address: info.sender.to_string(),
-        start_after: Some(deposit_denom.clone()),
-        limit: Some(0)
-    };
-
-    // let res = query(deps.as_ref(), env, querymsg).unwrap();
+        // Running VestedTokens Query
     let res = vested_tokens(deps.as_ref(), env, info.funds[0].denom.clone()).unwrap();
     assert_eq!(res,Uint128::from(amount));
-
-    // assert_eq!(res,VestingAccountResponse{ address: info.sender.into_string(), vestings:  vec![]})
 
 
     }
