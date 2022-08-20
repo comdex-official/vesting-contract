@@ -1,4 +1,4 @@
-use cosmwasm_std::{StdResult, Uint128};
+use cosmwasm_std::{StdResult, Uint128,Addr};
 use cw20::{ Denom};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -186,3 +186,15 @@ fn periodic_vesting_vested_amount() {
         Uint128::new(1000000u128)
     );
 }
+
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SudoMsg {
+    UpdateVestingContract {
+        address: Addr,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct MigrateMsg { }

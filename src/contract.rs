@@ -2,9 +2,9 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Attribute, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, Order, Response, StdError, StdResult, Uint128, WasmMsg,
+    MessageInfo, Order, Response, StdError, StdResult, Uint128, WasmMsg,Addr,
 };
-
+use cw2::set_contract_version;
 use serde_json::to_string;
 
 use cw20::{Cw20ExecuteMsg, Denom};
@@ -12,17 +12,23 @@ use cw_storage_plus::Bound;
 
 use crate::msg::{
     ExecuteMsg, InstantiateMsg, QueryMsg, VestingAccountResponse, VestingData,
-    VestingSchedule,
+    VestingSchedule,MigrateMsg,SudoMsg
 };
 use crate::state::{denom_to_key, VestingAccount, VESTING_ACCOUNTS, VESTED_BY_DENOM};
 
+
+// version info for migration info
+const CONTRACT_NAME: &str = "crates.io:vesting_contract";
+const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
-    _deps: DepsMut,
+     deps: DepsMut,
     _env: Env,
     _info: MessageInfo,
     _msg: InstantiateMsg,
 ) -> StdResult<Response> {
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     Ok(Response::new())
 }
 
@@ -484,13 +490,31 @@ fn vested_tokens(
     return Ok(total_vested);
 }
 
+#[entry_point]
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, StdError> {
+    let ver = cw2::get_contract_version(deps.storage)?;
+    // ensure we are migrating from an allowed contract
+    if ver.contract != CONTRACT_NAME {
+        return Err(StdError::generic_err("Can only upgrade from same type").into());
+    }
+    // note: better to do proper semver compare, but string compare *usually* works
+    if ver.version > CONTRACT_VERSION.to_string() {
+        return Err(StdError::generic_err("Cannot upgrade from a newer version").into());
+    }
 
+    // set the new version
+    cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    // do any desired state migrations...
+
+    Ok(Response::default())
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{coins, Addr, StdError};
+    use cosmwasm_std::{coins, StdError};
 
     const DENOM: &str = "TKN";
 
@@ -638,7 +662,7 @@ mod tests {
 
 
         // Registering the account with linearVesting.
-        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = Denom::Native(info.funds[0].denom.clone());
     let reciverinfo = mock_info("recipent", &coins(100, DENOM.to_string()));
 
@@ -652,7 +676,7 @@ mod tests {
 
     //deregistring account
     let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
-    let mut messages: Vec<CosmosMsg> = vec![cosmwasm_std::CosmosMsg::Bank(BankMsg::Send {
+    let  messages: Vec<CosmosMsg> = vec![cosmwasm_std::CosmosMsg::Bank(BankMsg::Send {
         to_address: reciverinfo.sender.clone().to_string(),
         amount: vec![Coin {
             denom:"TKN".to_string(),
@@ -690,7 +714,7 @@ mod tests {
         };
         // Registering the account
 
-        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = Denom::Native(info.funds[0].denom.clone());
         let reciverinfo = mock_info("recipent", &coins(100, DENOM.to_string()));
 
@@ -726,10 +750,10 @@ mod tests {
             },
         };
         // Registering the Account
-        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = Denom::Native(info.funds[0].denom.clone());
 // Query Message
-    let querymsg = QueryMsg::VestingAccount {
+    let _querymsg = QueryMsg::VestingAccount {
         address: info.sender.to_string(),
         start_after: Some(deposit_denom.clone()),
         limit: Some(0)
@@ -767,8 +791,8 @@ mod tests {
         };
 
         // Registering Accounts.
-        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
-        let deposit_denom = Denom::Native(info.funds[0].denom.clone());
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
+        let _deposit_denom = Denom::Native(info.funds[0].denom.clone());
 
         // Running VestedTokens Query
     let res = vested_tokens(deps.as_ref(), env, info.funds[0].denom.clone()).unwrap();
