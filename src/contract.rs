@@ -1,8 +1,9 @@
+
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     to_binary, Attribute, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, Order, Response, StdError, StdResult, Uint128, WasmMsg,Addr,
+    MessageInfo, Order, Response, StdError, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use serde_json::to_string;
@@ -12,7 +13,7 @@ use cw_storage_plus::Bound;
 
 use crate::msg::{
     ExecuteMsg, InstantiateMsg, QueryMsg, VestingAccountResponse, VestingData,
-    VestingSchedule,MigrateMsg,SudoMsg
+    VestingSchedule,MigrateMsg,
 };
 use crate::state::{denom_to_key, VestingAccount, VESTING_ACCOUNTS, VESTED_BY_DENOM};
 
@@ -52,8 +53,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                 master_address,
                 address,
                 Denom::Native(deposit_coin.denom.clone()),
-                deposit_coin.denom,
-                deposit_coin.amount,
+                deposit_coin,
                 vesting_schedule,
             )
         }
@@ -81,12 +81,12 @@ fn register_vesting_account(
     master_address: Option<String>,
     address: String,
     deposit_denom: Denom,
-    deposit_denom_str: String,
-    deposit_amount: Uint128,
+    deposit : Coin,
     vesting_schedule: VestingSchedule,
 ) -> StdResult<Response> {
     let denom_key = denom_to_key(deposit_denom.clone());
-
+    let deposit_amount=deposit.amount;
+    let deposit_denom_str=deposit.denom;
     // vesting_account existence check
     if VESTING_ACCOUNTS.has(deps.storage, (address.as_str(), &denom_key)) {
         return Err(StdError::generic_err("already exists"));
@@ -403,12 +403,12 @@ fn claim(
         Denom::Native(data) => data,
         _ => "nan",
     };
-    let total_vested=match VESTED_BY_DENOM.may_load(deps.storage, &denom_str)?
+    let total_vested=match VESTED_BY_DENOM.may_load(deps.storage, denom_str)?
     {
         Some(data)=> data,
         None => Uint128::new(0),
     };
-    VESTED_BY_DENOM.save(deps.storage, &denom_str, &(total_vested-claimable_amount))?;
+    VESTED_BY_DENOM.save(deps.storage, denom_str, &(total_vested-claimable_amount))?;
 
     }
 
@@ -487,7 +487,7 @@ fn vested_tokens(
         Some(data)=> data,
         None => Uint128::new(0),
     };
-    return Ok(total_vested);
+    Ok(total_vested)
 }
 
 #[entry_point]
@@ -495,11 +495,11 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, S
     let ver = cw2::get_contract_version(deps.storage)?;
     // ensure we are migrating from an allowed contract
     if ver.contract != CONTRACT_NAME {
-        return Err(StdError::generic_err("Can only upgrade from same type").into());
+        return Err(StdError::generic_err("Can only upgrade from same type"));
     }
     // note: better to do proper semver compare, but string compare *usually* works
-    if ver.version > CONTRACT_VERSION.to_string() {
-        return Err(StdError::generic_err("Cannot upgrade from a newer version").into());
+    if ver.version.as_str() > CONTRACT_VERSION {
+        return Err(StdError::generic_err("Cannot upgrade from a newer version"));
     }
 
     // set the new version
@@ -531,64 +531,8 @@ mod tests {
         assert_eq!(res.attributes.len(), 0);
     }
 
-    // testcase for register_vesting account with PeriodicVesting.
- #[test]
-    fn testing_register_vesting_account_with_periodic(){
-        let env = mock_env();
-        let mut deps = mock_dependencies();
-        let info = mock_info("sender", &coins(2000, DENOM.to_string()));
-        let amount:u64=100;
-        // Register Message
-        let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
-            address: info.sender.clone().into_string(),
-            vesting_schedule: VestingSchedule::PeriodicVesting {
-                start_time: 1662824814.to_string(),
-                end_time: 1662824914.to_string(),
-                vesting_interval: 4.to_string(),
-                amount: Uint128::from(amount)
-            },
-        };
-        //Registering the vesting account
+ 
 
-        let res = execute(deps.as_mut(), env, info.clone(), msg.clone());
-        let deposit_denom = Denom::Native(info.funds[0].denom.clone());
-
-         // Amount Should  not equal to zero.
-        assert_ne!(res,Err(StdError::generic_err(
-            "cannot make zero token vesting account",
-        )));
-
-         // End_time Should be valid.
-        assert_ne!(res,Err(StdError::generic_err("invalid end_time")));
-
-         // Start_time shoul be valid.
-        assert_ne!(res,Err(StdError::generic_err("invalid start_time")));
-
-         // Vesting interval Should be valid.
-        assert_ne!(res,Err(StdError::generic_err("invalid vesting_interval")));
-
-         // Start_time shoul be valid.
-        assert_ne!(res,Err(StdError::generic_err("invalid start_time")));
-         // End time should be greater than Start Time.
-        assert_ne!(res,Err(StdError::generic_err("assert(end_time > start_time)")));
-
-        // Vesting interval Should not be eqaul to zero.
-        assert_ne!(res,Err(StdError::generic_err("assert(vesting_interval != 0)")));
-        assert_eq!(res,Ok(Response::new()
-        .add_attributes(vec![
-            ("action", "register_vesting_account"),
-            (
-                "master_address",
-                info.sender.as_str(),
-            ),
-            ("address", info.sender.as_str()),
-            ("vesting_denom", &to_string(&deposit_denom).unwrap()),
-            ("vesting_amount", &info.funds[0].amount.to_string()),
-        ]
-    )))
-
-    }
 
     // tescase for register_vesting_account with linearvesting
     #[test]
@@ -645,7 +589,7 @@ mod tests {
 
 // Testcase for Deregistering vesting accounts.
     #[test]
-    fn testing_deregister_vesting_account_with_linera(){
+    fn testing_deregister_vesting_account_with_linear(){
         let env = mock_env();
         let mut deps = mock_dependencies();
         let info = mock_info("sender", &coins(100, DENOM.to_string()));
