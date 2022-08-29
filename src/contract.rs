@@ -53,8 +53,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
                 master_address,
                 address,
                 Denom::Native(deposit_coin.denom.clone()),
-                deposit_coin.denom,
-                deposit_coin.amount,
+                deposit_coin,
                 vesting_schedule,
             )
         }
@@ -82,12 +81,12 @@ fn register_vesting_account(
     master_address: Option<String>,
     address: String,
     deposit_denom: Denom,
-    deposit_denom_str: String,
-    deposit_amount: Uint128,
+    deposit : Coin,
     vesting_schedule: VestingSchedule,
 ) -> StdResult<Response> {
     let denom_key = denom_to_key(deposit_denom.clone());
-
+    let deposit_amount=deposit.amount;
+    let deposit_denom_str=deposit.denom;
     // vesting_account existence check
     if VESTING_ACCOUNTS.has(deps.storage, (address.as_str(), &denom_key)) {
         return Err(StdError::generic_err("already exists"));
