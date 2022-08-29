@@ -1,0 +1,1 @@
+595fc3903aa013b7c7f000dd4a471605721c73206acd8ddbfce96c3a0ec4789f  ./target/wasm32-unknown-unknown/release/token_vesting.wasm
