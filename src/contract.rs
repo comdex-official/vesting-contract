@@ -6,11 +6,11 @@ use crate::state::{denom_to_key, VestingAccount, VESTED_BY_DENOM, VESTING_ACCOUN
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Attribute, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, Order, Response, StdError, StdResult, Uint128, 
+    to_binary, Attribute, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Order,
+    Response, StdError, StdResult, Uint128,
 };
 use cw2::set_contract_version;
-use cw20::{Denom};
+use cw20::Denom;
 use cw_storage_plus::Bound;
 use serde_json::to_string;
 
@@ -258,16 +258,11 @@ fn deregister_vesting_account(
         messages.push(message);
     }
 
-    
     let total_vested = match VESTED_BY_DENOM.may_load(deps.storage, &denom)? {
         Some(data) => data,
         None => Uint128::new(0),
     };
-    VESTED_BY_DENOM.save(
-        deps.storage,
-        &denom,
-        &(total_vested - left_vesting_amount),
-    )?;
+    VESTED_BY_DENOM.save(deps.storage, &denom, &(total_vested - left_vesting_amount))?;
 
     Ok(Response::new().add_messages(messages).add_attributes(vec![
         ("action", "deregister_vesting_account"),
@@ -293,7 +288,6 @@ fn claim(
     let mut messages: Vec<CosmosMsg> = vec![];
     let mut attrs: Vec<Attribute> = vec![];
     for denom in denoms.iter() {
-
         // vesting_account existence check
         let account = VESTING_ACCOUNTS.may_load(deps.storage, (sender.as_str(), denom))?;
         if account.is_none() {
@@ -340,7 +334,6 @@ fn claim(
             .into_iter(),
         );
 
-        
         let total_vested = VESTED_BY_DENOM.may_load(deps.storage, denom)?;
 
         if total_vested.is_none() {
@@ -482,7 +475,7 @@ mod tests {
         };
 
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
-        let deposit_denom =info.funds[0].denom.clone();
+        let deposit_denom = info.funds[0].denom.clone();
 
         // Amount Should  not equal to zero.
         assert_ne!(
