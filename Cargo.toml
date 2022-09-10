@@ -1,10 +1,8 @@
 [package]
 name = "token-vesting"
 version = "0.0.0"
-authors = ["Yun Yeo <yun@users.noreply.github.com>"]
+authors = ["Comdex"]
 edition = "2018"
-description = "Provide various token vesting feature"
-license = "Apache-2.0"
 
 exclude = [
   # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.

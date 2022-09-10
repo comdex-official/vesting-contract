@@ -520,7 +520,7 @@ mod tests {
         )
     }
 
-    // Testcase for Deregistering vesting accounts.
+    // Test case for De-registering vesting accounts.
     #[test]
     fn testing_deregister_vesting_account_with_linear() {
         let env = mock_env();
@@ -540,20 +540,20 @@ mod tests {
         // Registering the account with linearVesting.
         let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = info.funds[0].denom.clone();
-        let reciverinfo = mock_info("recipent", &coins(100, DENOM.to_string()));
+        let receiver_info = mock_info("recipient", &coins(100, DENOM.to_string()));
 
         // deregister message.
         let msg = ExecuteMsg::DeregisterVestingAccount {
             address: info.sender.clone().into_string(),
             denom: deposit_denom.clone(),
             vested_token_recipient: Some(info.sender.to_string().clone()),
-            left_vesting_token_recipient: Some(reciverinfo.sender.to_string()),
+            left_vesting_token_recipient: Some(receiver_info.sender.to_string()),
         };
 
-        //deregistring account
+        //de-registering account
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let messages: Vec<CosmosMsg> = vec![cosmwasm_std::CosmosMsg::Bank(BankMsg::Send {
-            to_address: reciverinfo.sender.clone().to_string(),
+            to_address: receiver_info.sender.clone().to_string(),
             amount: vec![Coin {
                 denom: "TKN".to_string(),
                 amount: Uint128::from(amount),
@@ -574,7 +574,7 @@ mod tests {
         )
     }
 
-    // Testcase for claim
+    // Test case for claim
     #[test]
     fn testing_claim() {
         let env = mock_env();
@@ -595,14 +595,14 @@ mod tests {
 
         let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = info.funds[0].denom.clone();
-        let reciverinfo = mock_info("recipent", &coins(100, DENOM.to_string()));
+        let receiver_info = mock_info("recipent", &coins(100, DENOM.to_string()));
 
         let res = claim(
             deps.as_mut(),
             env,
             info.clone(),
             vec![deposit_denom],
-            Some(reciverinfo.sender.clone().into_string()),
+            Some(receiver_info.sender.clone().into_string()),
         );
 
         assert_ne!(
@@ -667,7 +667,7 @@ mod tests {
         )
     }
 
-    // testcase for query to get vesting Tokens.
+    // test case for query to get vesting Tokens.
     #[test]
     fn testing_vesting_tokens() {
         let env = mock_env();
