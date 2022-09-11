@@ -1,5 +1,5 @@
-use cosmwasm_std::{StdResult, Uint128,Addr};
-use cw20::{ Denom};
+use cosmwasm_std::{Addr, StdResult, Uint128};
+use cw20::Denom;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +20,7 @@ pub enum ExecuteMsg {
     /// only available when master_address was set
     DeregisterVestingAccount {
         address: String,
-        denom: Denom,
+        denom: String,
         vested_token_recipient: Option<String>,
         left_vesting_token_recipient: Option<String>,
     },
@@ -29,12 +29,10 @@ pub enum ExecuteMsg {
     /// VestingAccount Operations ///
     ////////////////////////
     Claim {
-        denoms: Vec<Denom>,
+        denoms: Vec<String>,
         recipient: Option<String>,
     },
 }
-
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -44,10 +42,9 @@ pub enum QueryMsg {
         start_after: Option<Denom>,
         limit: Option<u32>,
     },
-    VestedTokens
-    {
+    VestedTokens {
         denom: String,
-    }
+    },
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, PartialEq, Debug)]
@@ -59,7 +56,7 @@ pub struct VestingAccountResponse {
 #[derive(Serialize, Deserialize, JsonSchema, PartialEq, Debug)]
 pub struct VestingData {
     pub master_address: Option<String>,
-    pub vesting_denom: Denom,
+    pub vesting_denom: String,
     pub vesting_amount: Uint128,
     pub vested_amount: Uint128,
     pub vesting_schedule: VestingSchedule,
@@ -72,8 +69,8 @@ pub enum VestingSchedule {
     /// LinearVesting is used to vest tokens linearly during a time period.
     /// The total_amount will be vested during this period.
     LinearVesting {
-        start_time: String,      // vesting start time in second unit
-        end_time: String,        // vesting end time in second unit
+        start_time: u64,         // vesting start time in second unit
+        end_time: u64,           // vesting end time in second unit
         vesting_amount: Uint128, // total vesting amount
     },
     /// PeriodicVesting is used to vest tokens
@@ -82,10 +79,10 @@ pub enum VestingSchedule {
     /// (end_time - start_time) should be multiple of vesting_interval
     /// deposit_amount = amount * ((end_time - start_time) / vesting_interval + 1)
     PeriodicVesting {
-        start_time: String,       // vesting start time in second unit
-        end_time: String,         // vesting end time in second unit
-        vesting_interval: String, // vesting interval in second unit
-        amount: Uint128,          // the amount will be vested in a interval
+        start_time: u64,       // vesting start time in second unit
+        end_time: u64,         // vesting end time in second unit
+        vesting_interval: u64, // vesting interval in second unit
+        amount: Uint128,       // the amount will be vested in a interval
     },
 }
 
@@ -97,14 +94,14 @@ impl VestingSchedule {
                 end_time,
                 vesting_amount,
             } => {
-                let start_time = start_time.parse::<u64>().unwrap();
-                let end_time = end_time.parse::<u64>().unwrap();
+                let start_time = start_time;
+                let end_time = end_time;
 
-                if block_time <= start_time {
+                if &block_time <= start_time {
                     return Ok(Uint128::zero());
                 }
 
-                if block_time >= end_time {
+                if &block_time >= end_time {
                     return Ok(*vesting_amount);
                 }
 
@@ -120,20 +117,19 @@ impl VestingSchedule {
                 vesting_interval,
                 amount,
             } => {
-                let start_time = start_time.parse::<u64>().unwrap();
-                let end_time = end_time.parse::<u64>().unwrap();
-                let vesting_interval = vesting_interval.parse::<u64>().unwrap();
+                let start_time = start_time;
+                let end_time = end_time;
 
-                if block_time < start_time {
+                if &block_time <= start_time {
                     return Ok(Uint128::zero());
                 }
 
-                let num_interval = 1 + (end_time - start_time) / vesting_interval;
-                if block_time >= end_time {
+                let num_interval = (end_time - start_time) / vesting_interval;
+                if &block_time >= end_time {
                     return Ok(amount.checked_mul(Uint128::from(num_interval))?);
                 }
 
-                let passed_interval = 1 + (block_time - start_time) / vesting_interval;
+                let passed_interval = (block_time - start_time) / vesting_interval;
                 Ok(amount.checked_mul(Uint128::from(passed_interval))?)
             }
         }
@@ -141,10 +137,30 @@ impl VestingSchedule {
 }
 
 #[test]
+fn periodic_vesting_vested_amount_hack() {
+    let schedule = VestingSchedule::PeriodicVesting {
+        start_time: 105,
+        end_time: 110,
+        vesting_interval: 5,
+        amount: Uint128::new(500000u128),
+    };
+    assert_eq!(schedule.vested_amount(100).unwrap(), Uint128::zero());
+    //FAILS. Got the first tranche at the start_time
+    assert_eq!(schedule.vested_amount(105).unwrap(), Uint128::zero());
+    //FAILS. Got the first tranche at the start_time
+    assert_eq!(schedule.vested_amount(106).unwrap(), Uint128::zero());
+    //FAILS. Got double of the intended amount
+    assert_eq!(
+        schedule.vested_amount(110).unwrap(),
+        Uint128::new(500000u128)
+    );
+}
+
+#[test]
 fn linear_vesting_vested_amount() {
     let schedule = VestingSchedule::LinearVesting {
-        start_time: "100".to_string(),
-        end_time: "110".to_string(),
+        start_time: 100,
+        end_time: 110,
         vesting_amount: Uint128::new(1000000u128),
     };
 
@@ -166,35 +182,29 @@ fn linear_vesting_vested_amount() {
 #[test]
 fn periodic_vesting_vested_amount() {
     let schedule = VestingSchedule::PeriodicVesting {
-        start_time: "105".to_string(),
-        end_time: "110".to_string(),
-        vesting_interval: "5".to_string(),
+        start_time: 105,
+        end_time: 110,
+        vesting_interval: 5,
         amount: Uint128::new(500000u128),
     };
 
     assert_eq!(schedule.vested_amount(100).unwrap(), Uint128::zero());
+    assert_eq!(schedule.vested_amount(105).unwrap(), Uint128::zero());
     assert_eq!(
-        schedule.vested_amount(105).unwrap(),
+        schedule.vested_amount(110).unwrap(),
         Uint128::new(500000u128)
     );
     assert_eq!(
-        schedule.vested_amount(110).unwrap(),
-        Uint128::new(1000000u128)
-    );
-    assert_eq!(
         schedule.vested_amount(115).unwrap(),
-        Uint128::new(1000000u128)
+        Uint128::new(500000u128)
     );
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SudoMsg {
-    UpdateVestingContract {
-        address: Addr,
-    },
+    UpdateVestingContract { address: Addr },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MigrateMsg { }
+pub struct MigrateMsg {}
