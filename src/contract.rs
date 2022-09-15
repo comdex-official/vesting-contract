@@ -33,7 +33,6 @@ pub fn instantiate(
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> StdResult<Response> {
     match msg {
         ExecuteMsg::RegisterVestingAccount {
-            master_address,
             address,
             vesting_schedule,
         } => {
@@ -47,7 +46,6 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             register_vesting_account(
                 deps,
                 env,
-                master_address,
                 address,
                 deposit_coin.denom.clone(),
                 deposit_coin,
@@ -75,7 +73,6 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 fn register_vesting_account(
     deps: DepsMut,
     env: Env,
-    master_address: Option<String>,
     address: String,
     deposit_denom: String,
     deposit: Coin,
@@ -158,7 +155,6 @@ fn register_vesting_account(
         deps.storage,
         (address.as_str(), &deposit_denom_str),
         &VestingAccount {
-            master_address: master_address.clone(),
             address: address.to_string(),
             vesting_denom: deposit_denom.clone(),
             vesting_amount: deposit_amount,
@@ -179,10 +175,6 @@ fn register_vesting_account(
 
     Ok(Response::new().add_attributes(vec![
         ("action", "register_vesting_account"),
-        (
-            "master_address",
-            master_address.unwrap_or_default().as_str(),
-        ),
         ("address", address.as_str()),
         ("vesting_denom", &to_string(&deposit_denom).unwrap()),
         ("vesting_amount", &deposit_amount.to_string()),
@@ -199,7 +191,9 @@ fn deregister_vesting_account(
     left_vesting_token_recipient: Option<String>,
 ) -> StdResult<Response> {
     let sender = info.sender;
-
+    if sender != address {
+        return Err(StdError::generic_err(format!("Unauthorized",)));
+    }
     let mut messages: Vec<CosmosMsg> = vec![];
 
     // vesting_account existence check
@@ -284,7 +278,9 @@ fn claim(
     let sender = info.sender;
     let recipient = recipient.unwrap_or_else(|| sender.to_string());
     deps.api.addr_validate(&recipient)?;
-
+    if sender != recipient {
+        return Err(StdError::generic_err(format!("Unauthorized")));
+    }
     let mut messages: Vec<CosmosMsg> = vec![];
     let mut attrs: Vec<Attribute> = vec![];
     for denom in denoms.iter() {
@@ -397,7 +393,6 @@ fn vesting_account(
             .vested_amount(env.block.time.seconds())?;
 
         vestings.push(VestingData {
-            master_address: account.master_address,
             vesting_denom: account.vesting_denom,
             vesting_amount: account.vesting_amount,
             vested_amount,
@@ -465,7 +460,6 @@ mod tests {
         let info = mock_info("sender", &coins(100, DENOM.to_string()));
         let amount: u64 = 100;
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
@@ -512,7 +506,6 @@ mod tests {
             res,
             Ok(Response::new().add_attributes(vec![
                 ("action", "register_vesting_account"),
-                ("master_address", info.sender.as_str(),),
                 ("address", info.sender.as_str()),
                 ("vesting_denom", &to_string(&deposit_denom).unwrap()),
                 ("vesting_amount", &info.funds[0].amount.to_string()),
@@ -528,7 +521,6 @@ mod tests {
         let info = mock_info("sender", &coins(100, DENOM.to_string()));
         let amount: u64 = 100;
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
@@ -583,7 +575,6 @@ mod tests {
         let amount: u64 = 100;
         // registering Message
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
@@ -595,12 +586,12 @@ mod tests {
 
         let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = info.funds[0].denom.clone();
-        let receiver_info = mock_info("recipent", &coins(100, DENOM.to_string()));
+        let receiver_info = mock_info("sender", &coins(100, DENOM.to_string()));
 
         let res = claim(
             deps.as_mut(),
             env,
-            info.clone(),
+            receiver_info.clone(),
             vec![deposit_denom],
             Some(receiver_info.sender.clone().into_string()),
         );
@@ -631,7 +622,6 @@ mod tests {
         let info = mock_info("sender", &coins(100, DENOM.to_string()));
         let amount: u64 = 100;
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
@@ -676,7 +666,6 @@ mod tests {
         let amount: u64 = 100;
         // register Message
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
