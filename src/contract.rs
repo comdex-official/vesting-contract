@@ -55,19 +55,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             )
         }
         ExecuteMsg::DeregisterVestingAccount {
-            address,
             denom,
             vested_token_recipient,
-            left_vesting_token_recipient,
-        } => deregister_vesting_account(
-            deps,
-            env,
-            info,
-            address,
-            denom,
-            vested_token_recipient,
-            left_vesting_token_recipient,
-        ),
+        } => deregister_vesting_account(deps, env, info, denom, vested_token_recipient),
         ExecuteMsg::Claim { denoms, recipient } => claim(deps, env, info, denoms, recipient),
     }
 }
@@ -75,7 +65,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
 fn register_vesting_account(
     deps: DepsMut,
     env: Env,
-    master_address: Option<String>,
+    master_address: String,
     address: String,
     deposit_denom: String,
     deposit: Coin,
@@ -179,10 +169,7 @@ fn register_vesting_account(
 
     Ok(Response::new().add_attributes(vec![
         ("action", "register_vesting_account"),
-        (
-            "master_address",
-            master_address.unwrap_or_default().as_str(),
-        ),
+        ("master_address", master_address.as_str()),
         ("address", address.as_str()),
         ("vesting_denom", &to_string(&deposit_denom).unwrap()),
         ("vesting_amount", &deposit_amount.to_string()),
@@ -193,17 +180,15 @@ fn deregister_vesting_account(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    address: String,
     denom: String,
     vested_token_recipient: Option<String>,
-    left_vesting_token_recipient: Option<String>,
 ) -> StdResult<Response> {
     let sender = info.sender;
 
     let mut messages: Vec<CosmosMsg> = vec![];
 
     // vesting_account existence check
-    let account = VESTING_ACCOUNTS.may_load(deps.storage, (address.as_str(), &denom))?;
+    let account = VESTING_ACCOUNTS.may_load(deps.storage, (sender.as_str(), &denom))?;
     if account.is_none() {
         return Err(StdError::generic_err(format!(
             "vesting entry is not found for denom {:?}",
@@ -212,9 +197,9 @@ fn deregister_vesting_account(
     }
 
     let account = account.unwrap();
-
+    let master_account = account.master_address;
     // remove vesting account
-    VESTING_ACCOUNTS.remove(deps.storage, (address.as_str(), &denom));
+    VESTING_ACCOUNTS.remove(deps.storage, (sender.as_str(), &denom));
 
     let vested_amount = account
         .vesting_schedule
@@ -225,7 +210,7 @@ fn deregister_vesting_account(
     // a account address or the given `vested_token_recipient` address
     let claimable_amount = vested_amount.checked_sub(claimed_amount)?;
     if !claimable_amount.is_zero() {
-        let recipient = vested_token_recipient.unwrap_or_else(|| address.to_string());
+        let recipient = vested_token_recipient.unwrap_or_else(|| sender.to_string());
         deps.api.addr_validate(&recipient)?;
 
         let message: CosmosMsg = BankMsg::Send {
@@ -244,7 +229,7 @@ fn deregister_vesting_account(
     // the given `left_vesting_token_recipient` address
     let left_vesting_amount = account.vesting_amount.checked_sub(vested_amount)?;
     if !left_vesting_amount.is_zero() {
-        let recipient = left_vesting_token_recipient.unwrap_or_else(|| sender.to_string());
+        let recipient = master_account;
         deps.api.addr_validate(&recipient)?;
         let message: CosmosMsg = BankMsg::Send {
             to_address: recipient,
@@ -266,7 +251,7 @@ fn deregister_vesting_account(
 
     Ok(Response::new().add_messages(messages).add_attributes(vec![
         ("action", "deregister_vesting_account"),
-        ("address", address.as_str()),
+        ("address", sender.as_str()),
         ("vesting_denom", &to_string(&account.vesting_denom).unwrap()),
         ("vesting_amount", &account.vesting_amount.to_string()),
         ("vested_amount", &vested_amount.to_string()),
@@ -465,7 +450,7 @@ mod tests {
         let info = mock_info("sender", &coins(100, DENOM.to_string()));
         let amount: u64 = 100;
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
+            master_address: info.sender.to_string(),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
@@ -528,7 +513,7 @@ mod tests {
         let info = mock_info("sender", &coins(100, DENOM.to_string()));
         let amount: u64 = 100;
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
+            master_address: info.sender.to_string(),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
@@ -540,14 +525,12 @@ mod tests {
         // Registering the account with linearVesting.
         let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
         let deposit_denom = info.funds[0].denom.clone();
-        let receiver_info = mock_info("recipient", &coins(100, DENOM.to_string()));
+        let receiver_info = mock_info("sender", &coins(100, DENOM.to_string()));
 
         // deregister message.
         let msg = ExecuteMsg::DeregisterVestingAccount {
-            address: info.sender.clone().into_string(),
             denom: deposit_denom.clone(),
             vested_token_recipient: Some(info.sender.to_string().clone()),
-            left_vesting_token_recipient: Some(receiver_info.sender.to_string()),
         };
 
         //de-registering account
@@ -583,7 +566,7 @@ mod tests {
         let amount: u64 = 100;
         // registering Message
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
+            master_address: info.sender.to_string(),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
@@ -631,7 +614,7 @@ mod tests {
         let info = mock_info("sender", &coins(100, DENOM.to_string()));
         let amount: u64 = 100;
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
+            master_address: info.sender.to_string(),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
@@ -676,7 +659,7 @@ mod tests {
         let amount: u64 = 100;
         // register Message
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: Some(info.sender.to_string()),
+            master_address: info.sender.to_string(),
             address: info.sender.clone().into_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,

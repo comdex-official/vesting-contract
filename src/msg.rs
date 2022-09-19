@@ -13,16 +13,14 @@ pub enum ExecuteMsg {
     /// Creator Operations ///
     //////////////////////////
     RegisterVestingAccount {
-        master_address: Option<String>, // if given, the vesting account can be unregistered
+        master_address: String, // if given, the vesting account can be unregistered
         address: String,
         vesting_schedule: VestingSchedule,
     },
     /// only available when master_address was set
     DeregisterVestingAccount {
-        address: String,
         denom: String,
         vested_token_recipient: Option<String>,
-        left_vesting_token_recipient: Option<String>,
     },
 
     ////////////////////////
@@ -55,7 +53,7 @@ pub struct VestingAccountResponse {
 
 #[derive(Serialize, Deserialize, JsonSchema, PartialEq, Debug)]
 pub struct VestingData {
-    pub master_address: Option<String>,
+    pub master_address: String,
     pub vesting_denom: String,
     pub vesting_amount: Uint128,
     pub vested_amount: Uint128,
