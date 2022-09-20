@@ -14,6 +14,7 @@ pub const APP_ID: Item<u64> = Item::new("app_id");
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
 pub struct VestingAccount {
+    pub master_address: String,
     pub address: String,
     pub vesting_denom: String,
     pub vesting_amount: Uint128,
