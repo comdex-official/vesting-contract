@@ -6,12 +6,14 @@ use cosmwasm_std::Uint128;
 use cw20::Denom;
 use cw_storage_plus::{Item, Map};
 
+/// Maps address of user and vested token denom to the vesting details.
 pub const VESTING_ACCOUNTS: Map<(&str, &str), VestingAccount> = Map::new("vesting_accounts");
-
+/// Maps denom to the total amount vested
 pub const VESTED_BY_DENOM: Map<&str, Uint128> = Map::new("vested_by_denom");
 
 pub const APP_ID: Item<u64> = Item::new("app_id");
 
+/// This struct holds necessary vesting details.
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
 pub struct VestingAccount {
     pub master_address: String,

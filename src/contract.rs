@@ -40,6 +40,8 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
             // deposit validation
             if info.funds.len() != 1 {
                 return Err(StdError::generic_err("must deposit only one type of token"));
+            } else if info.funds[0].amount.is_zero() {
+                return Err(StdError::generic_err("assert(funds > 0)"));
             }
 
             let deposit_coin = info.funds[0].clone();
@@ -62,6 +64,7 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> S
     }
 }
 
+/// Registers a new vesting account.
 fn register_vesting_account(
     deps: DepsMut,
     env: Env,
@@ -75,6 +78,9 @@ fn register_vesting_account(
     let deposit_denom_str = deposit.denom;
     deps.api.addr_validate(&master_address)?;
 
+    // !------- Validate `address`?-------!
+    deps.api.addr_validate(&address)?;
+
     // vesting_account existence check
     if VESTING_ACCOUNTS.has(deps.storage, (address.as_str(), &deposit_denom)) {
         return Err(StdError::generic_err("already exists"));
@@ -87,8 +93,13 @@ fn register_vesting_account(
             end_time,
             vesting_amount,
         } => {
-            if vesting_amount.is_zero() {
-                return Err(StdError::generic_err("assert(vesting_amount > 0)"));
+            // !-------
+            // Refer to CODE_REVIEW
+            // -------!
+            if vesting_amount != deposit_amount {
+                return Err(StdError::generic_err(
+                    "assert(deposit_amount == vesting_amount)",
+                ));
             }
 
             if start_time < env.block.time.seconds() {
@@ -97,12 +108,6 @@ fn register_vesting_account(
 
             if end_time <= start_time {
                 return Err(StdError::generic_err("assert(end_time <= start_time)"));
-            }
-
-            if vesting_amount != deposit_amount {
-                return Err(StdError::generic_err(
-                    "assert(deposit_amount == vesting_amount)",
-                ));
             }
         }
         VestingSchedule::PeriodicVesting {
@@ -130,6 +135,9 @@ fn register_vesting_account(
             }
 
             let time_period = end_time - start_time;
+            // !-------
+            // Refer to CODE_REVIEW
+            // -------!
             if time_period != (time_period / vesting_interval) * vesting_interval {
                 return Err(StdError::generic_err(
                     "assert((end_time - start_time) % vesting_interval == 0)",
@@ -137,6 +145,9 @@ fn register_vesting_account(
             }
 
             let num_interval = time_period / vesting_interval;
+            // !-------
+            // This should be (num_interval + 1), according to the error message below.
+            // -------!
             let vesting_amount = amount.checked_mul(Uint128::from(num_interval))?;
             if vesting_amount != deposit_amount {
                 return Err(StdError::generic_err(
@@ -428,7 +439,7 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, S
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{coins, CosmosMsg, StdError};
+    use cosmwasm_std::{coins, Addr, CosmosMsg, StdError, Timestamp};
 
     const DENOM: &str = "TKN";
 
@@ -444,16 +455,87 @@ mod tests {
         assert_eq!(res.attributes.len(), 0);
     }
 
+    #[test]
+    fn register_vesting_account_linear() {
+        // Mock dependencies
+        let mut env = mock_env();
+        let mut deps = mock_dependencies();
+
+        // vesting details
+        let vesting_amount = 1000;
+        let address = Addr::unchecked("user1");
+        let vesting_schedule = VestingSchedule::LinearVesting {
+            start_time: 5000,
+            end_time: 6000,
+            vesting_amount: Uint128::from(vesting_amount),
+        };
+
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: String::new(),
+            address: address.to_string(),
+            vesting_schedule,
+        };
+
+        let info = mock_info(address.as_str(), &coins(vesting_amount, DENOM));
+
+        // FAIL for empty master address
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+        match res {
+            StdError::GenericErr { .. } => {}
+            e => panic!("{:?}", e),
+        };
+
+        // FAIL for start_time < block_time
+        let vesting_schedule = VestingSchedule::LinearVesting {
+            start_time: 5000,
+            end_time: 6000,
+            vesting_amount: Uint128::from(vesting_amount),
+        };
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: String::from("master"),
+            address: address.to_string(),
+            vesting_schedule,
+        };
+        env.block.time = Timestamp::from_seconds(6000);
+        let result = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+        match result {
+            StdError::GenericErr { msg }
+                if msg == String::from("assert(start_time < block_time)") => {}
+            e => panic!("{:?}", e),
+        };
+
+        // FAIL for start_time == end_time
+        let vesting_schedule = VestingSchedule::LinearVesting {
+            start_time: 6000,
+            end_time: 6000,
+            vesting_amount: Uint128::from(vesting_amount),
+        };
+
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: String::from("master"),
+            address: address.to_string(),
+            vesting_schedule,
+        };
+
+        let result = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+        match result {
+            StdError::GenericErr { msg }
+                if msg == String::from("assert(end_time <= start_time)") => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
     // tescase for register_vesting_account with linearvesting
     #[test]
     fn testing_register_vesting_account_with_linear() {
         let env = mock_env();
         let mut deps = mock_dependencies();
         let info = mock_info("sender", &coins(100, DENOM.to_string()));
+
         let amount: u64 = 100;
         let msg = ExecuteMsg::RegisterVestingAccount {
             master_address: info.sender.to_string(),
-            address: info.sender.clone().into_string(),
+            address: info.sender.clone().to_string(),
             vesting_schedule: VestingSchedule::LinearVesting {
                 start_time: 1662824814,
                 end_time: 1662824914,
