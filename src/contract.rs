@@ -78,7 +78,9 @@ fn register_vesting_account(
     let deposit_denom_str = deposit.denom;
     deps.api.addr_validate(&master_address)?;
 
-    // !------- Validate `address`?-------!
+    // !-------
+    // Validate `address`?
+    // -------!
     deps.api.addr_validate(&address)?;
 
     // vesting_account existence check
@@ -145,13 +147,10 @@ fn register_vesting_account(
             }
 
             let num_interval = time_period / vesting_interval;
-            // !-------
-            // This should be (num_interval + 1), according to the error message below.
-            // -------!
             let vesting_amount = amount.checked_mul(Uint128::from(num_interval))?;
             if vesting_amount != deposit_amount {
                 return Err(StdError::generic_err(
-                    "assert(deposit_amount = amount * ((end_time - start_time) / vesting_interval + 1))",
+                    "assert(deposit_amount = amount * ((end_time - start_time) / vesting_interval))",
                 ));
             }
         }
@@ -196,6 +195,11 @@ fn deregister_vesting_account(
     denom: String,
     vested_token_recipient: Option<String>,
 ) -> StdResult<Response> {
+    if !info.funds.is_empty() {
+        return Err(StdError::GenericErr {
+            msg: String::from("Funds not allowed."),
+        });
+    };
     let sender = info.sender;
 
     let mut messages: Vec<CosmosMsg> = vec![];
@@ -242,6 +246,10 @@ fn deregister_vesting_account(
     // the given `left_vesting_token_recipient` address
     let left_vesting_amount = account.vesting_amount.checked_sub(vested_amount)?;
     if !left_vesting_amount.is_zero() {
+        // !-------
+        // master account has already been validated during Register,
+        // therefore, no need to revalidate.
+        // -------!
         let recipient = master_account;
         deps.api.addr_validate(&recipient)?;
         let message: CosmosMsg = BankMsg::Send {
@@ -279,6 +287,12 @@ fn claim(
     denoms: Vec<String>,
     recipient: Option<String>,
 ) -> StdResult<Response> {
+    if !info.funds.is_empty() {
+        return Err(StdError::GenericErr {
+            msg: "Funds not allowed.".to_string(),
+        });
+    };
+
     let sender = info.sender;
     let recipient = recipient.unwrap_or_else(|| sender.to_string());
     deps.api.addr_validate(&recipient)?;
@@ -334,6 +348,9 @@ fn claim(
 
         let total_vested = VESTED_BY_DENOM.may_load(deps.storage, denom)?;
 
+        // !-------
+        // Fix this error message
+        // -------!
         if total_vested.is_none() {
             return Err(StdError::generic_err("already exists"));
         };
@@ -456,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn register_vesting_account_linear() {
+    fn register_vesting_account_linear_invalid_request() {
         // Mock dependencies
         let mut env = mock_env();
         let mut deps = mock_dependencies();
@@ -478,14 +495,14 @@ mod tests {
 
         let info = mock_info(address.as_str(), &coins(vesting_amount, DENOM));
 
-        // FAIL for empty master address
+        // * FAIL for empty master address
         let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
         match res {
             StdError::GenericErr { .. } => {}
             e => panic!("{:?}", e),
         };
 
-        // FAIL for start_time < block_time
+        // * FAIL for start_time < block_time
         let vesting_schedule = VestingSchedule::LinearVesting {
             start_time: 5000,
             end_time: 6000,
@@ -496,7 +513,9 @@ mod tests {
             address: address.to_string(),
             vesting_schedule,
         };
+
         env.block.time = Timestamp::from_seconds(6000);
+
         let result = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
         match result {
             StdError::GenericErr { msg }
@@ -504,7 +523,7 @@ mod tests {
             e => panic!("{:?}", e),
         };
 
-        // FAIL for start_time == end_time
+        // * FAIL for start_time == end_time
         let vesting_schedule = VestingSchedule::LinearVesting {
             start_time: 6000,
             end_time: 6000,
@@ -523,122 +542,291 @@ mod tests {
                 if msg == String::from("assert(end_time <= start_time)") => {}
             e => panic!("{:?}", e),
         };
-    }
 
-    // tescase for register_vesting_account with linearvesting
-    #[test]
-    fn testing_register_vesting_account_with_linear() {
-        let env = mock_env();
-        let mut deps = mock_dependencies();
-        let info = mock_info("sender", &coins(100, DENOM.to_string()));
-
-        let amount: u64 = 100;
-        let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: info.sender.to_string(),
-            address: info.sender.clone().to_string(),
-            vesting_schedule: VestingSchedule::LinearVesting {
-                start_time: 1662824814,
-                end_time: 1662824914,
-                vesting_amount: Uint128::from(amount),
-            },
+        // * FAIL for empty `address` field.
+        let vesting_schedule = VestingSchedule::LinearVesting {
+            start_time: 6000,
+            end_time: 8000,
+            vesting_amount: Uint128::from(vesting_amount),
         };
 
-        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
-        let deposit_denom = info.funds[0].denom.clone();
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: String::from("master"),
+            address: String::new(),
+            vesting_schedule,
+        };
 
-        // Amount Should  not equal to zero.
-        assert_ne!(
-            res,
-            Err(StdError::generic_err("assert(vesting_amount > 0)"))
+        execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+    }
+
+    #[test]
+    fn register_vesting_account_periodic_invalid_request() {
+        // Mock dependencies
+        let mut env = mock_env();
+        let mut deps = mock_dependencies();
+
+        env.block.time = Timestamp::from_seconds(200);
+
+        // vesting details
+        let vesting_amount = 1000;
+        let address = Addr::unchecked("user1");
+        let vesting_schedule = VestingSchedule::PeriodicVesting {
+            start_time: 1000,
+            end_time: 5000,
+            vesting_interval: 1000,
+            amount: Uint128::from(vesting_amount),
+        };
+
+        // * FAIL for sending excess amount
+        let deposit_amount = 4000 / 1000 * vesting_amount + 1000;
+        let info = mock_info(address.as_str(), &coins(deposit_amount, DENOM));
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: "master".to_string(),
+            address: address.to_string(),
+            vesting_schedule: vesting_schedule.clone(),
+        };
+        let result = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        match result {
+            StdError::GenericErr { msg } if msg == "assert(deposit_amount = amount * ((end_time - start_time) / vesting_interval))" => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn register_vesting_account_periodic_valid_request() {
+        let mut env = mock_env();
+        let mut deps = mock_dependencies();
+
+        env.block.time = Timestamp::from_seconds(200);
+
+        // vesting details
+        let vesting_amount = 1000;
+        let address = Addr::unchecked("user1");
+        let vesting_schedule = VestingSchedule::PeriodicVesting {
+            start_time: 1000,
+            end_time: 5000,
+            vesting_interval: 1000,
+            amount: Uint128::from(vesting_amount),
+        };
+
+        // PASS
+        let deposit_amount = 4000 / 1000 * vesting_amount;
+        let info = mock_info("user1", &coins(deposit_amount, DENOM));
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: String::from("master"),
+            address: address.to_string(),
+            vesting_schedule: vesting_schedule.clone(),
+        };
+        let result = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        assert_eq!(result.messages.len(), 0);
+
+        // Check correct update in VESTING_ACCOUNTS
+        let vesting_account = VESTING_ACCOUNTS
+            .load(deps.as_ref().storage, (address.as_str(), DENOM))
+            .unwrap();
+        assert_eq!(vesting_account.address, address.to_string());
+        assert_eq!(vesting_account.master_address, "master".to_string());
+        assert_eq!(
+            vesting_account.vesting_amount,
+            Uint128::from(deposit_amount)
         );
+        assert_eq!(vesting_account.claimed_amount, Uint128::zero());
+        assert_eq!(vesting_account.vesting_denom, DENOM.to_string());
+        assert_eq!(vesting_account.vesting_schedule, vesting_schedule);
 
-        // Start_time shoul be valid.
-        assert_ne!(res, Err(StdError::generic_err("invalid start_time")));
+        // Check correct update in VESTED_BY_DENOM
+        let denom_vested = VESTED_BY_DENOM.load(deps.as_ref().storage, DENOM).unwrap();
+        assert_eq!(denom_vested, Uint128::from(deposit_amount));
+    }
 
-        // End_time Should be valid.
-        assert_ne!(res, Err(StdError::generic_err("invalid end_time")));
+    #[test]
+    fn register_vesting_account_linear_valid_request() {
+        let mut env = mock_env();
+        let mut deps = mock_dependencies();
 
-        // End time should be greater than Start Time.
-        assert_ne!(
-            res,
-            Err(StdError::generic_err("assert(start_time < block_time)"))
+        env.block.time = Timestamp::from_seconds(1000);
+
+        // vesting details
+        let vesting_amount = 100;
+        let address = Addr::unchecked("user1");
+        let vesting_schedule = VestingSchedule::LinearVesting {
+            start_time: 1200,
+            end_time: 1500,
+            vesting_amount: Uint128::from(vesting_amount),
+        };
+
+        // PASS
+        let info = mock_info(address.as_str(), &coins(vesting_amount, DENOM));
+        let msg = ExecuteMsg::RegisterVestingAccount {
+            master_address: "master".to_string(),
+            address: info.sender.clone().to_string(),
+            vesting_schedule: vesting_schedule.clone(),
+        };
+
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+        assert_eq!(res.messages.len(), 0);
+
+        // Check correct update in VESTING_ACCOUNTS
+        let vesting_account = VESTING_ACCOUNTS
+            .load(deps.as_ref().storage, (address.as_str(), DENOM))
+            .unwrap();
+        assert_eq!(vesting_account.address, address.to_string());
+        assert_eq!(vesting_account.claimed_amount, Uint128::zero());
+        assert_eq!(vesting_account.master_address, "master".to_string());
+        assert_eq!(
+            vesting_account.vesting_amount,
+            Uint128::from(vesting_amount)
         );
-        assert_ne!(
-            res,
-            Err(StdError::generic_err("assert(end_time <= start_time)"))
-        );
+        assert_eq!(vesting_account.vesting_denom, DENOM.to_string());
+        assert_eq!(vesting_account.vesting_schedule, vesting_schedule);
 
-        // vesting amount and deposit amount should be equal.
-        assert_ne!(
-            res,
-            Err(StdError::generic_err(
-                "assert(deposit_amount == vesting_amount)",
-            ))
-        );
+        // Check correct update in VESTED_BY_DENOM
+        let denom_vested = VESTED_BY_DENOM.load(deps.as_ref().storage, DENOM).unwrap();
+        assert_eq!(denom_vested, Uint128::from(vesting_amount));
 
         // Should return Response
         assert_eq!(
             res,
-            Ok(Response::new().add_attributes(vec![
+            Response::new().add_attributes(vec![
                 ("action", "register_vesting_account"),
-                ("master_address", info.sender.as_str(),),
+                ("master_address", "master"),
                 ("address", info.sender.as_str()),
-                ("vesting_denom", &to_string(&deposit_denom).unwrap()),
+                ("vesting_denom", &to_string(DENOM).unwrap()),
                 ("vesting_amount", &info.funds[0].amount.to_string()),
-            ]))
+            ])
         )
     }
 
-    // Test case for De-registering vesting accounts.
-    #[test]
-    fn testing_deregister_vesting_account_with_linear() {
-        let env = mock_env();
-        let mut deps = mock_dependencies();
-        let info = mock_info("sender", &coins(100, DENOM.to_string()));
-        let amount: u64 = 100;
+    fn create_vesting_account(
+        deps: DepsMut,
+        env: Env,
+        info: MessageInfo,
+        start_time: Option<u64>,
+        end_time: Option<u64>,
+        vesting_amount: Option<Uint128>,
+    ) {
+        let start_time = start_time.unwrap_or(1000);
+        let end_time = end_time.unwrap_or(1500);
+        let vesting_amount = vesting_amount.unwrap_or(Uint128::from(1000u64));
+        let vesting_schedule = VestingSchedule::LinearVesting {
+            start_time,
+            end_time,
+            vesting_amount,
+        };
         let msg = ExecuteMsg::RegisterVestingAccount {
-            master_address: info.sender.to_string(),
-            address: info.sender.clone().into_string(),
-            vesting_schedule: VestingSchedule::LinearVesting {
-                start_time: 1662824814,
-                end_time: 1662824914,
-                vesting_amount: Uint128::from(amount),
-            },
+            master_address: "master".to_string(),
+            address: info.sender.to_string(),
+            vesting_schedule,
         };
+        execute(deps, env, info, msg).unwrap();
+    }
 
-        // Registering the account with linearVesting.
-        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
-        let deposit_denom = info.funds[0].denom.clone();
-        let receiver_info = mock_info("sender", &coins(100, DENOM.to_string()));
+    #[test]
+    fn deregister_vesting_account_invalid_request() {
+        let mut env = mock_env();
+        let mut deps = mock_dependencies();
 
-        // deregister message.
+        env.block.time = Timestamp::from_seconds(1000);
+
+        let address = Addr::unchecked("user1");
+
+        // * FAIL: no vesting account present
+        let info = mock_info(address.as_str(), &[]);
         let msg = ExecuteMsg::DeregisterVestingAccount {
-            denom: deposit_denom.clone(),
-            vested_token_recipient: Some(info.sender.to_string().clone()),
+            denom: DENOM.to_string(),
+            vested_token_recipient: None,
         };
 
-        //de-registering account
-        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone());
-        let messages: Vec<CosmosMsg> = vec![cosmwasm_std::CosmosMsg::Bank(BankMsg::Send {
-            to_address: receiver_info.sender.clone().to_string(),
-            amount: vec![Coin {
-                denom: "TKN".to_string(),
-                amount: Uint128::from(amount),
-            }],
-        })];
+        let result = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        match result {
+            StdError::GenericErr { .. } => {}
+            e => panic!("{:?}", e),
+        };
 
-        // Should return response.
-        assert_eq!(
-            res,
-            Ok(Response::new().add_messages(messages).add_attributes(vec![
-                ("action", "deregister_vesting_account"),
-                ("address", info.sender.as_str()),
-                ("vesting_denom", &to_string(&deposit_denom.clone()).unwrap()),
-                ("vesting_amount", &100.to_string()),
-                ("vested_amount", &0.to_string()),
-                ("left_vesting_amount", &100.to_string()),
-            ]))
-        )
+        // * FAIL: Invalid recipient address
+        let recipient = String::from("");
+
+        // Create a new vesting account for user1
+        let info = mock_info(address.as_str(), &coins(1000, DENOM));
+        create_vesting_account(deps.as_mut(), env.clone(), info, None, None, None);
+
+        assert!(VESTING_ACCOUNTS.has(deps.as_ref().storage, (address.as_str(), DENOM)));
+        assert!(!VESTING_ACCOUNTS.has(deps.as_ref().storage, (&recipient, DENOM)));
+
+        // Forward the time to 2000, so that all the tokens have vested.
+        env.block.time = Timestamp::from_seconds(2000);
+
+        // Deregister the vesting account for user1
+        let info = mock_info(address.as_str(), &[]);
+        let msg = ExecuteMsg::DeregisterVestingAccount {
+            denom: DENOM.to_string(),
+            vested_token_recipient: Some(recipient),
+        };
+
+        let result = execute(deps.as_mut(), env.clone(), info, msg.clone()).unwrap_err();
+        match result {
+            StdError::GenericErr { msg }
+                if msg == "Invalid input: human address too short".to_string() => {}
+            e => panic!("{:?}", e),
+        };
+
+        // * FAIL: funds not allowed.
+        let info = mock_info("sender", &coins(10, DENOM));
+        let result = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        match result {
+            StdError::GenericErr { msg } if msg == "Funds not allowed." => {}
+            e => panic!("{:?}", e),
+        };
+    }
+
+    #[test]
+    fn claim_invalid_request() {
+        let mut env = mock_env();
+        let mut deps = mock_dependencies();
+
+        env.block.time = Timestamp::from_seconds(1000);
+
+        let address = Addr::unchecked("user1");
+
+        // * FAIL: incorrect denoms being claimed
+        let info = mock_info(address.as_str(), &coins(1000, DENOM));
+        create_vesting_account(deps.as_mut(), env.clone(), info, None, None, None);
+
+        let msg = ExecuteMsg::Claim {
+            denoms: vec!["DNM".to_string()],
+            recipient: None,
+        };
+
+        let info = mock_info(address.as_str(), &[]);
+        let result = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        match result {
+            StdError::GenericErr { msg }
+                if msg == "vesting entry is not found for denom \"DNM\"" => {}
+            e => panic!("{:?}", e),
+        };
+
+        // FAIL: No vested tokens
+        let msg = ExecuteMsg::Claim {
+            denoms: vec![DENOM.to_string()],
+            recipient: None,
+        };
+
+        let info = mock_info(address.as_str(), &[]);
+        let result = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        assert_eq!(result.messages.len(), 0);
+
+        // FAIL: Funds not allowed
+        let info = mock_info(address.as_str(), &coins(10, DENOM));
+        let msg = ExecuteMsg::Claim {
+            denoms: vec![DENOM.to_string()],
+            recipient: None,
+        };
+
+        let result = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        match result {
+            StdError::GenericErr { msg } if msg == "Funds not allowed." => {}
+            e => panic!("{:?}", e),
+        };
     }
 
     // Test case for claim
@@ -664,6 +852,7 @@ mod tests {
         let deposit_denom = info.funds[0].denom.clone();
         let receiver_info = mock_info("recipent", &coins(100, DENOM.to_string()));
 
+        let info = mock_info("sender", &[]);
         let res = claim(
             deps.as_mut(),
             env,
@@ -672,13 +861,6 @@ mod tests {
             Some(receiver_info.sender.clone().into_string()),
         );
 
-        assert_ne!(
-            res,
-            Err(StdError::generic_err(format!(
-                "vesting entry is not found for denom {}",
-                to_string(&info.funds[0].denom).unwrap(),
-            )))
-        );
         let messages: Vec<CosmosMsg> = vec![];
         // Should return Respose
         assert_eq!(
