@@ -872,6 +872,81 @@ mod tests {
         // .add_attributes(attrs)))
     }
 
+    #[test]
+    fn vesting_account_query() {
+        let mut env = mock_env();
+        let mut deps = mock_dependencies();
+
+        env.block.time = Timestamp::from_seconds(1000);
+
+        const DENOM2: &str = "TKN2";
+        let address = Addr::unchecked("user1");
+        let vesting_amount = 1000;
+
+        // A simple testcase for the vesting_account fn.
+
+        let info = mock_info(address.as_str(), &coins(vesting_amount, DENOM));
+        create_vesting_account(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            None,
+            None,
+            Some(Uint128::from(vesting_amount)),
+        );
+
+        let vesting_schedule = VestingSchedule::LinearVesting {
+            start_time: 1000,
+            end_time: 1500,
+            vesting_amount: Uint128::from(vesting_amount),
+        };
+        let result =
+            vesting_account(deps.as_ref(), env.clone(), address.to_string(), None, None).unwrap();
+        assert_eq!(result.address, address.to_string());
+        assert_eq!(
+            result.vestings[0],
+            VestingData {
+                master_address: "master".to_string(),
+                vesting_denom: DENOM.to_string(),
+                vesting_amount: Uint128::from(vesting_amount),
+                vested_amount: Uint128::zero(),
+                vesting_schedule: vesting_schedule.clone(),
+                claimable_amount: Uint128::zero()
+            }
+        );
+
+        let info = mock_info(address.as_str(), &coins(vesting_amount, DENOM2));
+        create_vesting_account(
+            deps.as_mut(),
+            env.clone(),
+            info,
+            None,
+            None,
+            Some(Uint128::from(vesting_amount)),
+        );
+
+        let result = vesting_account(
+            deps.as_ref(),
+            env.clone(),
+            address.to_string(),
+            Some(Denom::Native(DENOM.to_string())),
+            None,
+        )
+        .unwrap();
+        assert_eq!(result.vestings.len(), 1);
+        assert_eq!(
+            result.vestings[0],
+            VestingData {
+                master_address: "master".to_string(),
+                vesting_amount: Uint128::from(vesting_amount),
+                vesting_denom: DENOM2.to_string(),
+                vesting_schedule: vesting_schedule,
+                vested_amount: Uint128::zero(),
+                claimable_amount: Uint128::zero(),
+            }
+        );
+    }
+
     // testcase for Query to get vesting account
     #[test]
     fn testing_vesting_account() {
