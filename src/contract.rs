@@ -77,10 +77,6 @@ fn register_vesting_account(
     let deposit_amount = deposit.amount;
     let deposit_denom_str = deposit.denom;
     deps.api.addr_validate(&master_address)?;
-
-    // !-------
-    // Validate `address`?
-    // -------!
     deps.api.addr_validate(&address)?;
 
     // vesting_account existence check
@@ -95,9 +91,6 @@ fn register_vesting_account(
             end_time,
             vesting_amount,
         } => {
-            // !-------
-            // Refer to CODE_REVIEW
-            // -------!
             if vesting_amount != deposit_amount {
                 return Err(StdError::generic_err(
                     "assert(deposit_amount == vesting_amount)",
@@ -137,9 +130,6 @@ fn register_vesting_account(
             }
 
             let time_period = end_time - start_time;
-            // !-------
-            // Refer to CODE_REVIEW
-            // -------!
             if time_period != (time_period / vesting_interval) * vesting_interval {
                 return Err(StdError::generic_err(
                     "assert((end_time - start_time) % vesting_interval == 0)",
@@ -246,10 +236,6 @@ fn deregister_vesting_account(
     // the given `left_vesting_token_recipient` address
     let left_vesting_amount = account.vesting_amount.checked_sub(vested_amount)?;
     if !left_vesting_amount.is_zero() {
-        // !-------
-        // master account has already been validated during Register,
-        // therefore, no need to revalidate.
-        // -------!
         let recipient = master_account;
         deps.api.addr_validate(&recipient)?;
         let message: CosmosMsg = BankMsg::Send {
@@ -348,9 +334,6 @@ fn claim(
 
         let total_vested = VESTED_BY_DENOM.may_load(deps.storage, denom)?;
 
-        // !-------
-        // Fix this error message
-        // -------!
         if total_vested.is_none() {
             return Err(StdError::generic_err("already exists"));
         };
