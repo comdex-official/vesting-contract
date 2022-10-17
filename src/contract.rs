@@ -908,17 +908,11 @@ mod tests {
             Some(Uint128::from(vesting_amount)),
         );
 
-        let result = vesting_account(
-            deps.as_ref(),
-            env.clone(),
-            address.to_string(),
-            Some(Denom::Native(DENOM.to_string())),
-            None,
-        )
-        .unwrap();
-        assert_eq!(result.vestings.len(), 1);
+        let result =
+            vesting_account(deps.as_ref(), env.clone(), address.to_string(), None, None).unwrap();
+        assert_eq!(result.vestings.len(), 2);
         assert_eq!(
-            result.vestings[0],
+            result.vestings[1],
             VestingData {
                 master_address: "master".to_string(),
                 vesting_amount: Uint128::from(vesting_amount),
