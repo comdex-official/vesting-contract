@@ -13,11 +13,12 @@ pub enum ExecuteMsg {
     /// Creator Operations ///
     //////////////////////////
     RegisterVestingAccount {
-        master_address: String, // if given, the vesting account can be unregistered
+        master_address: String,
         address: String,
         vesting_schedule: VestingSchedule,
     },
-    /// only available when master_address was set
+
+    /// Deregister vesting account for the (sender, denom) pair.
     DeregisterVestingAccount {
         denom: String,
         vested_token_recipient: Option<String>,
