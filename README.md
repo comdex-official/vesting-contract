@@ -14,7 +14,7 @@ This contract provides vesting account feature for cw20 and native tokens.
     }
   ```
 
-  * When creating a new vesting account, the user needs to specify a master address (`master_address`), which enables deregister feature. The recipient of the vesting amount is specified using the `address` parameter. One of two vesting schedules is specified using `vesting_schedule`.
+  * When creating a new vesting account, the user needs to specify a master address (`master_address`), which enables deregister feature. The recipient of the vested amount is specified using the `address` parameter. One of two [vesting schedules](#vesting-schedules) is specified using `vesting_schedule`.
   * For a given `address` and token (OSMO, CMDX, etc) pair, only a single vesting account is allowed.
 
 * DeregisterVestingAccount - Deregister vesting account
@@ -38,10 +38,51 @@ This contract provides vesting account feature for cw20 and native tokens.
     }
   ```
 
-  * Allows a user to claim vested tokens for the given denom(s) (`denoms`).
+  * Allows a user to claim vested tokens for the given denomination(s) (`denoms`).
   * The vested tokens may be optionally sent to another recipient specified through the `recipient` parameter.
 
 **NOTE:** Amount which can be claimed by the user, that is the unlocked amount in accordance with the *vesting schedule*, is referred to as the *vested* amount. Amount which is yet to be unlocked is referred to as *vesting* amount.
+
+### Vesting schedules
+
+There are two vesting options to choose from when registering a new vesting account.
+
+* Linear Vesting - Tokens vest every second and are available to withdraw.
+
+  ```rust
+  LinearVesting {
+      start_time: u64,
+      end_time: u64,
+      vesting_amount: Uint128,
+  }
+  ```
+
+  The following formula is used to calculate the vested amount, where *current duration* refers to the
+  duration since *RegisterVestingAccount* was executed, *total duration* refers to the
+  total duration over which the tokens will vest, *vesting amount* refers to the
+  initial deposit of tokens and *vested tokens* refers to the amount that has
+  vested till now.
+
+  > current duration = current time - start time of vesting.  
+  > total duration = end time of vesting - start time of vesting.  
+  > vested tokens = (vesting amount * current duration) / total duration
+
+* Periodic Vesting - Tokens vest at preset intervals defined during the *RegisterVestingAccount* execution.
+
+  ```rust
+  PeriodicVesting {
+      start_time: u64,
+      end_time: u64,
+      vesting_interval: u64,
+      amount: Uint128,
+  }
+  ```
+
+  The following formula is used to calculate the vested amount, where *start time* and *end time* are same as above, *vesting interval* is the preset inteval
+  length and *amount* is the initial deposit of tokens.
+
+  > intervals = (current time - start time) / vesting interval  
+  > vested tokens = intervals * amount
 
 ## Query Operations
 
