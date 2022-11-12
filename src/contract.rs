@@ -254,7 +254,11 @@ fn deregister_vesting_account(
         Some(data) => data,
         None => Uint128::new(0),
     };
-    VESTED_BY_DENOM.save(deps.storage, &denom, &(total_vested - left_vesting_amount))?;
+    VESTED_BY_DENOM.save(
+        deps.storage,
+        &denom,
+        &(total_vested - left_vesting_amount - claimable_amount),
+    )?;
 
     Ok(Response::new().add_messages(messages).add_attributes(vec![
         ("action", "deregister_vesting_account"),
@@ -439,7 +443,7 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, S
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{coins, Addr, CosmosMsg, StdError, Timestamp};
+    use cosmwasm_std::{coin, coins, Addr, BankMsg, CosmosMsg, StdError, Timestamp};
 
     const DENOM: &str = "TKN";
 
@@ -993,5 +997,85 @@ mod tests {
         // Running VestedTokens Query
         let res = vested_tokens(deps.as_ref(), env, info.funds[0].denom.clone()).unwrap();
         assert_eq!(res, Uint128::from(amount));
+    }
+
+    #[test]
+    fn test_deregister_vesting_account_mapping_check() {
+        let mut env = mock_env();
+        env.block.height = 100;
+        env.block.time = Timestamp::from_seconds(100);
+
+        let mut deps = mock_dependencies();
+
+        // Create a vesting account
+        let master_address = Addr::unchecked("master_address");
+        let user_address = Addr::unchecked("user_address");
+        let denom = String::from("uToken");
+        let deposit = coin(1000, &denom);
+        let vesting_schedule = VestingSchedule::LinearVesting {
+            start_time: 110,
+            end_time: 210,
+            vesting_amount: deposit.amount,
+        };
+
+        let result = register_vesting_account(
+            deps.as_mut(),
+            env.clone(),
+            master_address.to_string(),
+            user_address.to_string(),
+            denom.to_string(),
+            deposit.clone(),
+            vesting_schedule,
+        )
+        .unwrap();
+        assert_eq!(result.messages.len(), 0);
+        assert_eq!(result.attributes.len(), 5);
+
+        // Forward time to vest tokens
+        env.block.height = 120;
+        env.block.time = Timestamp::from_seconds(120);
+
+        // Total vested tokens = 10th of the initial deposit
+        let vesting_details = VESTING_ACCOUNTS
+            .load(
+                deps.as_ref().storage,
+                (user_address.as_str(), denom.as_str()),
+            )
+            .unwrap();
+        assert_eq!(
+            vesting_details
+                .vesting_schedule
+                .vested_amount(env.block.time.seconds())
+                .unwrap()
+                .u128(),
+            100u128
+        );
+
+        // Deregister
+        let info = mock_info(user_address.as_str(), &[]);
+        let result =
+            deregister_vesting_account(deps.as_mut(), env.clone(), info, denom.clone(), None)
+                .unwrap();
+        assert_eq!(result.messages.len(), 2);
+        assert_eq!(
+            result.messages[0].msg,
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: user_address.to_string(),
+                amount: coins(100, &denom),
+            })
+        );
+        assert_eq!(
+            result.messages[1].msg,
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: master_address.to_string(),
+                amount: coins(900, &denom),
+            })
+        );
+
+        assert!(!VESTING_ACCOUNTS.has(deps.as_ref().storage, (user_address.as_str(), &denom)));
+        assert!(VESTED_BY_DENOM.has(deps.as_ref().storage, &denom));
+
+        let vested_tokens = VESTED_BY_DENOM.load(deps.as_ref().storage, &denom).unwrap();
+        assert_eq!(vested_tokens.u128(), 0u128);
     }
 }
